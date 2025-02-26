@@ -2317,6 +2317,7 @@ dependencies = [
  "futures",
  "lazy_static",
  "libc",
+ "log",
  "ratatui",
  "regex",
  "reqwest",

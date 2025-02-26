@@ -33,3 +33,5 @@ pub mod llamacpp;
 pub mod ollama;
 
 pub mod tts;
+
+pub mod raifus;

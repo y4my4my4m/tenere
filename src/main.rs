@@ -9,6 +9,7 @@ use tenere::handler::handle_key_events;
 use tenere::llm::{LLMAnswer, LLMRole, LLM}; // Add LLM import
 use tenere::tui::Tui;
 use tenere::tts;
+use tenere::raifus; // Add this import
 
 use tenere::llm::LLMModel;
 
@@ -63,6 +64,9 @@ async fn main() -> AppResult<()> {
     
     // Clean up TTS processes before exiting
     tts::kill_all_tts_processes();
+    
+    // Ensure we're in idle state when exiting
+    let _ = raifus::signal_idle();
     
     tui.exit()?;
     result
@@ -145,16 +149,21 @@ async fn handle_tts_event(event: TTSEvent, tts_config: &TTSConfig) {
             tokio::spawn(async move {
                 if let Err(e) = tts::play_tts(&text, &tts_config).await {
                     eprintln!("TTS error: {}", e);
+                    // Ensure idle state on error
+                    let _ = raifus::signal_idle();
                 }
             });
             
             // Return immediately so the main application can continue handling input
         },
         TTSEvent::Complete => {
-            // TTS playback completed
+            // TTS playback completed - set idle state
+            let _ = raifus::signal_idle();
         },
         TTSEvent::Error(err) => {
             eprintln!("TTS error: {}", err);
+            // Set idle state on error
+            let _ = raifus::signal_idle();
         }
     }
 }

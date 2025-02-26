@@ -10,6 +10,7 @@ use crate::config::TTSConfig;
 use std::sync::{Arc, Mutex, Once};
 use lazy_static::lazy_static;
 use std::collections::HashSet;
+use crate::raifus; // Add this import for Raifus control
 
 // Debug helper macro - you can remove this after debugging
 macro_rules! debug {
@@ -131,6 +132,7 @@ pub async fn play_tts(text: &str, tts_config: &TTSConfig) -> Result<(), Box<dyn 
     if !status.is_success() {
         let error_text = response.text().await?;
         debug!("Error response: {}", error_text);
+        
         return Err(format!("TTS request failed with status: {}, body: {}", status, error_text).into());
     }
 
@@ -144,7 +146,15 @@ pub async fn play_tts(text: &str, tts_config: &TTSConfig) -> Result<(), Box<dyn 
     debug!("Content type: {}", content_type);
 
     // Stream the audio directly to the player
-    stream_audio(response, &content_type).await
+    let result = stream_audio(response, &content_type).await;
+    
+    // After playback ends (whether successful or not), signal idle state
+    if let Err(e) = raifus::signal_idle() {
+        debug!("Failed to signal idle state: {}", e);
+        // Continue even if signaling fails
+    }
+    
+    result
 }
 
 /// Stream audio data directly to a player
@@ -164,6 +174,12 @@ async fn stream_audio(
         }
     };
     
+    // Signal that we're about to start talking - move it here where playback actually begins
+    if let Err(e) = raifus::signal_talking() {
+        debug!("Failed to signal talking state: {}", e);
+        // Continue even if signaling fails
+    }
+    
     // Process chunks as they arrive
     let mut stream = stream_helpers::get_stream(response);
     let mut total_bytes = 0;
@@ -180,11 +196,15 @@ async fn stream_audio(
                 // Write directly to player's stdin
                 if let Err(e) = player_stdin.write_all(&chunk).await {
                     debug!("Error writing to player: {}", e);
+                    // Signal idle on error
+                    let _ = raifus::signal_idle();
                     return Err(e.into());
                 }
             },
             Err(e) => {
                 debug!("Error in stream: {}", e);
+                // Signal idle on error
+                let _ = raifus::signal_idle();
                 return Err(e.into());
             }
         }
@@ -394,6 +414,9 @@ pub fn kill_all_tts_processes() {
         }
         processes.clear();
     }
+    
+    // Set idle state when cleaning up TTS processes
+    let _ = raifus::signal_idle();
 }
 
 // Register a new TTS process
@@ -410,4 +433,13 @@ fn unregister_tts_process(pid: u32) {
         processes.remove(&pid);
         debug!("Unregistered TTS process: {}", pid);
     }
+}
+
+// Add a function to cancel ongoing TTS and set idle state
+pub fn cancel_tts() {
+    // Kill any ongoing TTS processes
+    kill_all_tts_processes();
+    
+    // Ensure we're in idle state
+    let _ = raifus::signal_idle();
 }

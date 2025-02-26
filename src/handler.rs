@@ -2,6 +2,7 @@ use crate::llm::{LLMAnswer, LLMRole};
 use crate::{chat::Chat, prompt::Mode};
 use crate::event::TTSEvent;
 use crate::config::{TTSConfig, Config};  // Add Config import
+// Removed unused import: use crate::raifus;
 
 use crate::{
     app::{App, AppResult, FocusedBlock},
@@ -44,8 +45,25 @@ pub async fn handle_key_events(
                 .store(true, std::sync::atomic::Ordering::Relaxed);
         }
 
+        // Cancel current TTS playback
+        KeyCode::Char(c) if c == app.config.key_bindings.load_voice && app.prompt.mode != Mode::Insert => {
+            // Cancel any ongoing TTS
+            tts::cancel_tts();
+            
+            // Send notification
+            sender.send(Event::Notification(
+                Notification::new(
+                    "TTS playback canceled".to_string(),
+                    NotificationLevel::Info
+                )
+            ))?;
+        },
+
         // Read the current response with TTS
         KeyCode::Char('l') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+            // First cancel any ongoing TTS
+            tts::cancel_tts();
+            
             // Play the current answer with TTS
             if !app.chat.answer.plain_answer.is_empty() {
                 sender.send(Event::TTSEvent(TTSEvent::PlayText {
